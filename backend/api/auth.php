@@ -1,8 +1,8 @@
 <?php
 
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Headers: Content-Type");
-header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
+header("Access-Control-Allow-Headers: *");
+header("Access-Control-Allow-Methods: POST");
 header("Content-Type: application/json");
 
 include("../config/db.php");
@@ -10,83 +10,196 @@ include("../config/db.php");
 $data = json_decode(file_get_contents("php://input"), true);
 
 if (!$data) {
+
     echo json_encode([
         "success" => false,
-        "message" => "Invalid request"
+        "message" => "No data received"
     ]);
+
     exit;
 }
 
-$email = $data["email"];
-$password = $data["password"];
-$action = $data["action"];
+$action =
+    $data["action"] ?? "";
 
-if ($action == "register") {
+// ================= REGISTER =================
 
-    $name = $data["name"];
+if ($action === "register") {
 
-    $check = $conn->query("SELECT * FROM users WHERE email='$email'");
+    $name =
+        $data["name"] ?? "";
 
-    if ($check->num_rows > 0) {
+    $email =
+        $data["email"] ?? "";
+
+    $password =
+        $data["password"] ?? "";
+
+    if (
+        empty($name) ||
+        empty($email) ||
+        empty($password)
+    ) {
+
+        echo json_encode([
+            "success" => false,
+            "message" => "All fields required"
+        ]);
+
+        exit;
+    }
+
+    // CHECK EMAIL
+    $check =
+        $conn->prepare(
+            "SELECT id FROM users WHERE email=?"
+        );
+
+    $check->bind_param(
+        "s",
+        $email
+    );
+
+    $check->execute();
+
+    $result =
+        $check->get_result();
+
+    if (
+        $result->num_rows > 0
+    ) {
 
         echo json_encode([
             "success" => false,
             "message" => "Email already exists"
         ]);
 
-    } else {
-
-        $hashed = password_hash($password, PASSWORD_DEFAULT);
-
-        $conn->query("
-            INSERT INTO users(name,email,password)
-            VALUES('$name','$email','$hashed')
-        ");
-
-        echo json_encode([
-            "success" => true
-        ]);
+        exit;
     }
 
-} elseif ($action == "login") {
+    // HASH PASSWORD
+    $hashedPassword =
+        password_hash(
+            $password,
+            PASSWORD_DEFAULT
+        );
 
-    $result = $conn->query("
-        SELECT * FROM users WHERE email='$email'
-    ");
+    // INSERT USER
+    $stmt =
+        $conn->prepare(
+            "INSERT INTO users(name,email,password)
+             VALUES(?,?,?)"
+        );
 
-    if ($result->num_rows > 0) {
+    $stmt->bind_param(
+        "sss",
+        $name,
+        $email,
+        $hashedPassword
+    );
 
-        $user = $result->fetch_assoc();
+    if ($stmt->execute()) {
 
-        if (password_verify($password, $user["password"])) {
-
-            echo json_encode([
-                "success" => true,
-                "user" => $user
-            ]);
-
-        } else {
-
-            echo json_encode([
-                "success" => false,
-                "message" => "Wrong password"
-            ]);
-        }
+        echo json_encode([
+            "success" => true,
+            "message" => "Registration successful"
+        ]);
 
     } else {
 
         echo json_encode([
             "success" => false,
-            "message" => "User not found"
+            "message" => "Registration failed"
         ]);
     }
 
-} else {
-
-    echo json_encode([
-        "success" => false,
-        "message" => "Invalid action"
-    ]);
+    exit;
 }
 
+// ================= LOGIN =================
+
+if ($action === "login") {
+
+    $email =
+        $data["email"] ?? "";
+
+    $password =
+        $data["password"] ?? "";
+
+    if (
+        empty($email) ||
+        empty($password)
+    ) {
+
+        echo json_encode([
+            "success" => false,
+            "message" => "Email & password required"
+        ]);
+
+        exit;
+    }
+
+    $stmt =
+        $conn->prepare(
+            "SELECT * FROM users WHERE email=?"
+        );
+
+    $stmt->bind_param(
+        "s",
+        $email
+    );
+
+    $stmt->execute();
+
+    $result =
+        $stmt->get_result();
+
+    if (
+        $result->num_rows === 0
+    ) {
+
+        echo json_encode([
+            "success" => false,
+            "message" => "User not found"
+        ]);
+
+        exit;
+    }
+
+    $user =
+        $result->fetch_assoc();
+
+    if (
+        password_verify(
+            $password,
+            $user["password"]
+        )
+    ) {
+
+        echo json_encode([
+            "success" => true,
+            "user" => [
+                "id" => $user["id"],
+                "name" => $user["name"],
+                "email" => $user["email"]
+            ]
+        ]);
+
+    } else {
+
+        echo json_encode([
+            "success" => false,
+            "message" => "Invalid password"
+        ]);
+    }
+
+    exit;
+}
+
+// ================= INVALID =================
+
+echo json_encode([
+    "success" => false,
+    "message" => "Invalid request"
+]);
 ?>
